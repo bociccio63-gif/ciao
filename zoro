@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>Zoro Game</title>
+<style>
+  body { margin:0; background:black; }
+  canvas { display:block; margin:0 auto; background:#000; }
+  #overlay {
+    position: absolute; top: 10px; right: 10px; color: white; font-size: 20px; font-family: Arial;
+  }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas" width="800" height="480"></canvas>
+<div id="overlay">Vita: 100%</div>
+
+<!-- SUONI -->
+<audio id="sndJump" src="jump.mp3" preload="auto"></audio>
+<audio id="sndBreak" src="break.mp3" preload="auto"></audio>
+<audio id="sndBonus" src="bonus.mp3" preload="auto"></audio>
+<audio id="sndFire" src="fire.mp3" preload="auto"></audio>
+<audio id="sndFireworks" src="fireworks.mp3" preload="auto"></audio>
+<audio id="sndGameOver" src="gameover.mp3" preload="auto"></audio>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const overlay = document.getElementById("overlay");
+
+// --- AUDIO ---
+const sndJump = document.getElementById("sndJump");
+const sndBreak = document.getElementById("sndBreak");
+const sndBonus = document.getElementById("sndBonus");
+const sndFire = document.getElementById("sndFire");
+const sndFireworks = document.getElementById("sndFireworks");
+const sndGameOver = document.getElementById("sndGameOver");
+
+// --- VARIABILI GIOCO ---
+let player = { x: 100, y: 380, w: 40, h: 40, vy:0, onGround:false, vita:100, fuoco:false, fuocoTimer:0 };
+let gravity = 0.8;
+let keys = {};
+let blocks = [];
+let enemies = [];
+let level = 1;
+let fireworks = false;
+let fireworksTimer = 0;
+let gameOver = false;
+
+// --- LIVELLI ---
+function creaLivello(lvl) {
+    blocks = [];
+    enemies = [];
+    fireworks = false;
+    fireworksTimer = 0;
+    gameOver = false;
+    player.x = 100; player.y = 380; player.vy = 0; player.vita = 100; player.fuoco = false;
+
+    // blocchi a mezz'aria
+    for (let i=0;i<10+lvl*5;i++) {
+        blocks.push({x:200+i*60, y:300, w:40, h:40, bonus: Math.random()<0.5 ? "vita" : "fuoco", rotto:false});
+    }
+
+    // nemici
+    for (let i=0;i<5+lvl*3;i++) {
+        enemies.push({x:300+i*150, y:400, w:40, h:40, vivo:true});
+    }
+}
+
+// --- COLLISIONI ---
+function collide(a,b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+// --- INPUT ---
+document.addEventListener("keydown", e=> keys[e.code]=true);
+document.addEventListener("keyup", e=> keys[e.code]=false);
+
+// --- LOOP ---
+function update() {
+    if (gameOver) {
+        return;
+    }
+
+    // movimento orizzontale
+    if (keys["ArrowLeft"]) player.x -= 4;
+    if (keys["ArrowRight"]) player.x += 4;
+
+    // salto
+    if (keys["Space"] && player.onGround) {
+        player.vy = -12;
+        player.onGround = false;
+        sndJump.currentTime=0; sndJump.play();
+    }
+
+    // fuoco
+    if (keys["KeyF"] && player.fuoco) {
+        sndFire.currentTime=0; sndFire.play();
+    }
+
+    // gravità
+    player.y += player.vy;
+    player.vy += gravity;
+    if (player.y > 400) { player.y = 400; player.vy = 0; player.onGround = true; }
+
+    // collisione blocchi
+    blocks.forEach(b=>{
+        if (!b.rotto && collide(player, b)) {
+            if (player.vy < 0 && player.y > b.y) { // colpo da sotto
+                b.rotto = true;
+                sndBreak.currentTime=0; sndBreak.play();
+                if (b.bonus==="vita") {
+                    player.vita = Math.min(100, player.vita + 20);
+                    sndBonus.currentTime=0; sndBonus.play();
+                } else if (b.bonus==="fuoco") {
+                    player.fuoco = true;
+                    player.fuocoTimer = 60*30; // 30 secondi
+                    sndBonus.currentTime=0; sndBonus.play();
+                }
+            }
+        }
+    });
+
+    // nemici
+    enemies.forEach(e=>{
+        if (e.vivo && collide(player, e)) {
+            if (player.vy > 0) { // salta sopra
+                e.vivo = false;
+                player.vy = -8;
+                sndBreak.currentTime=0; sndBreak.play();
+            } else {
+                player.vita -= 1;
+                if (player.vita <= 0) {
+                    gameOver = true;
+                    sndGameOver.currentTime=0; sndGameOver.play();
+                    overlay.innerText = "Hai perso, sei solo un rapperino";
+                    setTimeout(()=>{ creaLivello(1); }, 5000);
+                }
+            }
+        }
+    });
+
+    // fuoco timer
+    if (player.fuoco) {
+        player.fuocoTimer--;
+        if (player.fuocoTimer<=0) player.fuoco=false;
+    }
+
+    // fine livello
+    if (player.x > (enemies.length*150)) {
+        fireworks = true;
+        fireworksTimer = 60*5;
+        sndFireworks.currentTime=0; sndFireworks.play();
+        level++;
+        setTimeout(()=>{ creaLivello(level); }, 5000);
+    }
+
+    overlay.innerText = `Vita: ${player.vita}%`;
+}
+
+function draw() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle="lightblue";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // città sfondo
+    ctx.fillStyle="gray";
+    ctx.fillRect(0, 300, canvas.width, 180);
+
+    // blocchi
+    ctx.fillStyle="brown";
+    blocks.forEach(b=>{
+        if (!b.rotto) ctx.fillRect(b.x, b.y, b.w, b.h);
+    });
+
+    // nemici
+    ctx.fillStyle="red";
+    enemies.forEach(e=>{
+        if (e.vivo) ctx.fillRect(e.x, e.y, e.w, e.h);
+    });
+
+    // player
+    ctx.fillStyle="green";
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+
+    // fuochi d’artificio
+    if (fireworks) {
+        ctx.fillStyle="yellow";
+        ctx.beginPath();
+        ctx.arc(Math.random()*canvas.width, Math.random()*200, 5, 0, Math.PI*2);
+        ctx.fill();
+    }
+}
+
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+// --- AVVIO ---
+creaLivello(1);
+loop();
+</script>
+</body>
+</html>
